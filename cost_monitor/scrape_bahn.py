@@ -1,5 +1,33 @@
+import re
+import time
+from tracemalloc import start
+
 from playwright.sync_api import Playwright, sync_playwright, expect
 
+
+TIME_RE = re.compile('(?P<time>\d\d:\d\d)')
+TIME_PATTERN = "%H:%M"
+
+def extract_times(results_container):
+    connections = results_container.query_selector_all(".overviewConnection")
+
+    last_start_time = time.strptime("00:00", TIME_PATTERN)
+
+    for connection in connections:
+        connection_times = connection.query_selector_all(".connectionTime")
+        assert len(connection_times) == 1, "found more than one connection time, something is wrong?"
+        connection_time = connection_times[0]
+        start_time = TIME_RE.search(connection_time.query_selector(".timeDep").inner_text()).group('time')
+        end_time = TIME_RE.search(connection_time.query_selector(".timeArr").inner_text()).group('time')
+
+        found_start_time = time.strptime(start_time, TIME_PATTERN)
+        if found_start_time > last_start_time:
+            last_start_time = found_start_time
+
+        print(start_time)
+        print(end_time)
+
+    return last_start_time
 
 def run(playwright: Playwright) -> None:
     browser = playwright.chromium.launch(headless=False)
@@ -48,16 +76,16 @@ def run(playwright: Playwright) -> None:
     # ---------------------
 
     results = page.wait_for_selector("#resultsOverviewContainer")
-    connections = results.query_selector_all(".overviewConnection")
-    for connection in connections:
-        connection_times = connection.query_selector_all(".connectionTime")
-        assert len(connection_times) == 1, "found more than one connection time, something is wrong?"
-        connection_time = connection_times[0]
-        start_time = connection_time.query_selector(".timeDep").inner_text()
-        end_time = connection_time.query_selector(".timeArr").inner_text()
+    while True:
+        last_start_time = extract_times(results)
+        if last_start_time > time.strptime("18:00", TIME_PATTERN):
+            break
 
-        print(start_time)
-        print(end_time)
+        later_button = results.query_selector(".later")
+        with page.expect_navigation():
+            later_button.click()
+        results = page.wait_for_selector("#resultsOverviewContainer")
+        print("new round")
 
     context.close()
     browser.close()
